@@ -76,13 +76,36 @@ const getProperties = async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
+    const {
+      minPrice,
+      maxPrice,
+      minBedrooms,     // from checkbox: 1, 2, 3, 4
+      minBathrooms,    // from checkbox: 1, 2, 3
+    } = req.query;
+
+    const filters = {};
+
+    if (minPrice || maxPrice) {
+      filters.price = {};
+      if (minPrice) filters.price.$gte = parseInt(minPrice);
+      if (maxPrice) filters.price.$lte = parseInt(maxPrice);
+    }
+
+    if (minBedrooms) {
+      filters.rooms = { $gte: parseInt(minBedrooms) };
+    }
+
+    if (minBathrooms) {
+      filters.bathrooms = { $gte: parseInt(minBathrooms) };
+    }
+
     const [properties, total] = await Promise.all([
-      Property.find()
+      Property.find(filters)
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
-        .lean(), // added for faster, lighter read
-      Property.countDocuments()
+        .lean(),
+      Property.countDocuments(filters),
     ]);
 
     res.status(200).json({
@@ -96,6 +119,7 @@ const getProperties = async (req, res) => {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
+
 
 
 module.exports = {

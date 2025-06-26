@@ -12,13 +12,28 @@ mongoose.connect(process.env.MONGO_URI, {
 const seedProperties = async () => {
   try {
     const sampleImages = [
-      'https://images.unsplash.com/photo-1600585154340-be6161a56a0c',
-      'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2',
-      'https://images.unsplash.com/photo-1568605114967-8130f3a36994',
+      'https://footballplans.blob.core.windows.net/images/photo-1.jpg',
+      'https://footballplans.blob.core.windows.net/images/photo-2.jpg',
+      'https://footballplans.blob.core.windows.net/images/photo-3.jpg',
     ];
 
     const properties = [];
 
+  const BATCH_SIZE = 100;
+
+  const deleteInChunks = async () => {
+    let deletedCount = 0;
+    while (true) {
+      const result = await Property.deleteMany({ "images.1": { $exists: false } }).limit(BATCH_SIZE);
+      if (result.deletedCount === 0) break;
+      deletedCount += result.deletedCount;
+      console.log(`Deleted ${deletedCount} so far...`);
+    }
+  };
+
+  deleteInChunks()
+
+    console.log('Starting to seed properties...');
     for (let i = 0; i < 1000; i++) {
       const price = faker.number.int({ min: 1000, max: 10000 });
       const rating = parseFloat(faker.number.float({ min: 1, max: 5, precision: 0.1 }).toFixed(1));
@@ -36,9 +51,8 @@ const seedProperties = async () => {
       });
     }
 
-    await Property.deleteMany(); // optional: clean before seeding
     await Property.insertMany(properties);
-    console.log('✅ 100 properties seeded!');
+    console.log('✅ 1000 properties seeded!');
     process.exit();
   } catch (err) {
     console.error('Seeding error:', err);
