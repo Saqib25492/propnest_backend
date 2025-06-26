@@ -72,16 +72,35 @@ const addPropertyVideo = async (req, res) => {
 // @route   GET /api/properties
 const getProperties = async (req, res) => {
   try {
-    const properties = await Property.find().sort({ createdAt: -1 });
-    res.status(200).json(properties);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+
+    const [properties, total] = await Promise.all([
+      Property.find()
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(), // added for faster, lighter read
+      Property.countDocuments()
+    ]);
+
+    res.status(200).json({
+      data: properties,
+      currentPage: page,
+      totalPages: Math.ceil(total / limit),
+      totalItems: total,
+    });
   } catch (error) {
     console.error('Get Properties Error:', error.message);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 };
 
+
 module.exports = {
   createProperty,
   getProperties,
   addPropertyVideo,
+  
 };
