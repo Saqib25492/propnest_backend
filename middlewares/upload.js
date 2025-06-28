@@ -1,9 +1,26 @@
 const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
-// Use memory storage to keep files in memory buffer
-const storage = multer.memoryStorage();
+// Ensure temp upload folder exists
+const tempDir = path.join(__dirname, '..', 'temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir);
+}
 
-// You can add file type validation if needed
+// Use disk storage for temporary files
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    const ext = path.extname(file.originalname);
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  }
+});
+
+// File filter to allow only specific mime types
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'video/mp4', 'video/quicktime'];
   if (allowedTypes.includes(file.mimetype)) {
@@ -13,12 +30,13 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// Multer upload middleware
 const upload = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB max size
-  },
+    fileSize: 100 * 1024 * 1024, // 100MB max
+  }
 });
 
 module.exports = upload;

@@ -1,72 +1,75 @@
-const Property = require('../models/Property');
-const uploadFileToBlob = require('../utils/uploadToBlob');
+// controllers/propertyController.js
+const fs = require('fs')
+const path = require('path')
+const busboy = require('busboy')
+const Property = require('../models/Property')
+const uploadQueue = require('../queues/uploadQueue')
 
-const createProperty = async (req, res) => {
-  try {
-    const { title, rating, address, rooms, bathrooms, area, price } = req.body;
-    const files = req.files;
+const queueMediaUpload = async (propertyId, imagePaths, videoPath) => {
+  await uploadQueue.add('uploadMediaJob', {
+    propertyId,
+    imagePaths,
+    videoPath,
+  })
+}
 
-    const imageUrls = await Promise.all(
-      files.map(file =>
-        uploadFileToBlob(file.buffer, file.originalname, file.mimetype)
-      )
-    );
+const createProperty = (req, res) => {
+  const bb = busboy({ headers: req.headers })
+  const fields = {}
+  const imagePaths = []
+  let videoPath = null
 
-    const newProperty = await Property.create({
-      title,
-      rating,
-      address,
-      rooms,
-      bathrooms,
-      area,
-      price,
-      images: imageUrls,
-      video: null,
-    });
+  bb.on('field', (fieldname, val) => {
+    fields[fieldname] = val
+  })
 
-    res.status(201).json(newProperty);
-  } catch (error) {
-    console.error('Create Property Error:', error.message);
-    res.status(500).json({ message: 'Server Error', error: error.message });
-  }
-};
+  bb.on('file', (fieldname, file, filename) => {
+    const tempFilePath = path.join(__dirname, '../temp', `${Date.now()}-${filename}`)
+    const writeStream = fs.createWriteStream(tempFilePath)
+    file.pipe(writeStream)
 
+    writeStream.on('close', () => {
+      if (fieldname === 'video') {
+        videoPath = tempFilePath
+      } else {
+        imagePaths.push(tempFilePath)
+      }
+    })
+  })
 
+  bb.on('finish', async () => {
+    try {
+      const { title, rating = 0, address, rooms, bathrooms, area, price } = fields
 
-const addPropertyVideo = async (req, res) => {
-  try {
-    const { id } = req.params;
+      const newProperty = await Property.create({
+        title,
+        rating,
+        address,
+        rooms,
+        bathrooms,
+        area,
+        price,
+        images: [],
+        video: null,
+        uploadStatus: 'pending',
+      })
 
-    if (!req.file) {
-      return res.status(400).json({ message: 'No video file uploaded' });
+      await queueMediaUpload(newProperty._id, imagePaths, videoPath)
+
+      res.status(201).json({
+        message: 'Property and media successfully queued for upload',
+        propertyId: newProperty._id,
+      })
+    } catch (error) {
+      console.error('Create Property Error:', error.message)
+      res.status(500).json({ message: 'Server Error', error: error.message })
     }
+  })
 
-    const file = req.file;
+  req.pipe(bb)
+}
 
-    // Upload to Azure Blob
-    const videoUrl = await uploadFileToBlob(file.buffer, file.originalname, file.mimetype);
 
-    // Update property with video URL
-    const updatedProperty = await Property.findByIdAndUpdate(
-      id,
-      { video: videoUrl },
-      { new: true }
-    );
-
-    if (!updatedProperty) {
-      return res.status(404).json({ message: 'Property not found' });
-    }
-
-    res.status(200).json({
-      message: 'Video uploaded and attached successfully',
-      video: videoUrl,
-      property: updatedProperty
-    });
-  } catch (error) {
-    console.error('Upload Video Error:', error.message);
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
 
 // @desc    Get all properties
 // @route   GET /api/properties
@@ -125,6 +128,6 @@ const getProperties = async (req, res) => {
 module.exports = {
   createProperty,
   getProperties,
-  addPropertyVideo,
+
   
 };
