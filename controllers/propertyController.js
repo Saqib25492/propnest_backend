@@ -14,32 +14,24 @@ const queueMediaUpload = async (propertyId, imagePaths, videoPath) => {
 }
 
 const createProperty = (req, res) => {
-  const bb = busboy({ headers: req.headers })
-  const fields = {}
-  const imagePaths = []
-  let videoPath = null
+  const bb = busboy({ headers: req.headers });
+  const fields = {};
+  const files = [];
 
+  // Collect fields
   bb.on('field', (fieldname, val) => {
-    fields[fieldname] = val
-  })
+    fields[fieldname] = val;
+  });
 
+  // Collect file streams and destination paths
   bb.on('file', (fieldname, file, filename) => {
-    const tempFilePath = path.join(__dirname, '../temp', `${Date.now()}-${filename}`)
-    const writeStream = fs.createWriteStream(tempFilePath)
-    file.pipe(writeStream)
-
-    writeStream.on('close', () => {
-      if (fieldname === 'video') {
-        videoPath = tempFilePath
-      } else {
-        imagePaths.push(tempFilePath)
-      }
-    })
-  })
+    const tempFilePath = path.join(__dirname, '../temp', `${Date.now()}-${filename}`);
+    files.push({ fieldname, file, tempFilePath });
+  });
 
   bb.on('finish', async () => {
     try {
-      const { title, rating = 0, address, rooms, bathrooms, area, price } = fields
+      const { title, rating = 0, address, rooms, bathrooms, area, price } = fields;
 
       const newProperty = await Property.create({
         title,
@@ -52,22 +44,68 @@ const createProperty = (req, res) => {
         images: [],
         video: null,
         uploadStatus: 'pending',
-      })
+      });
 
-      await queueMediaUpload(newProperty._id, imagePaths, videoPath)
-
+      // ✅ Send response immediately
       res.status(201).json({
-        message: 'Property and media successfully queued for upload',
+        message: 'Property created. Media will be uploaded in the background.',
         propertyId: newProperty._id,
-      })
-    } catch (error) {
-      console.error('Create Property Error:', error.message)
-      res.status(500).json({ message: 'Server Error', error: error.message })
-    }
-  })
+      });
 
-  req.pipe(bb)
-}
+      // ✅ Handle file writes + upload after response
+      setImmediate(() => {
+        const writeFilePromises = files.map(({ fieldname, file, tempFilePath }) => {
+          return new Promise((resolve, reject) => {
+            const writeStream = fs.createWriteStream(tempFilePath);
+            file.pipe(writeStream);
+
+            writeStream.on('finish', () => {
+              resolve({ fieldname, path: tempFilePath });
+            });
+
+            writeStream.on('error', err => {
+              console.error(`❌ Error writing file ${tempFilePath}:`, err);
+              reject(err);
+            });
+          });
+        });
+
+        Promise.all(writeFilePromises)
+          .then(results => {
+            const imagePaths = [];
+            let videoPath = null;
+
+            results.forEach(({ fieldname, path }) => {
+              if (fieldname === 'video') {
+                videoPath = path;
+              } else {
+                imagePaths.push(path);
+              }
+            });
+
+            // ✅ Queue upload
+            queueMediaUpload(newProperty._id, imagePaths, videoPath)
+              .then(() => console.log(`📥 Media upload queued for ${newProperty._id}`))
+              .catch(err => {
+                console.error('❌ Upload queueing failed:', err);
+                Property.findByIdAndUpdate(newProperty._id, { uploadStatus: 'failed' });
+              });
+          })
+          .catch(err => {
+            console.error('❌ File writing failed (post-response):', err);
+            Property.findByIdAndUpdate(newProperty._id, { uploadStatus: 'failed' });
+          });
+      });
+    } catch (err) {
+      console.error('❌ Property creation failed:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ message: 'Server error', error: err.message });
+      }
+    }
+  });
+
+  req.pipe(bb);
+};
 
 
 
