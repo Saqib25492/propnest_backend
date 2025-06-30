@@ -1,31 +1,40 @@
-const uploadFileToBlob = require('../utils/uploadToBlob');
+const uploadQueue = require('../queues/uploadQueue');
 
 const uploadMedia = async (req, res) => {
   try {
-    const files = req.files;
-
-    // Upload images
-    const imageUrls = await Promise.all(
-      (files.images || []).map((file) =>
-        uploadFileToBlob(file.buffer, file.originalname, file.mimetype)
-      )
-    );
-
-    // Upload video if provided
-    let videoUrl = null;
-    if (files.video && files.video[0]) {
-      const file = files.video[0];
-      videoUrl = await uploadFileToBlob(file.buffer, file.originalname, file.mimetype);
+    const propertyId = req.body.propertyId;
+    if (!propertyId) {
+      return res.status(400).json({ message: 'Missing propertyId' });
     }
 
-    // Respond with uploaded URLs
-    res.status(200).json({
-      images: imageUrls,
-      video: videoUrl,
+    const imagePaths = [];
+    let videoPath = null;
+
+    if (req.files.images) {
+      for (const file of req.files.images) {
+        imagePaths.push(file.path); // multer saves it to disk
+      }
+    }
+
+    if (req.files.video && req.files.video[0]) {
+      videoPath = req.files.video[0].path;
+    }
+
+    // Queue background media upload
+    await uploadQueue.add('media-job', {
+      propertyId,
+      imagePaths,
+      videoPath,
     });
-  } catch (error) {
-    console.error('Upload Error:', error.message);
-    res.status(500).json({ message: 'Upload failed', error: error.message });
+
+    // Respond immediately
+    res.status(202).json({
+      message: 'Media upload queued successfully',
+    });
+
+  } catch (err) {
+    console.error('UploadMedia controller error:', err);
+    res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 

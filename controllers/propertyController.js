@@ -5,107 +5,52 @@ const busboy = require('busboy')
 const Property = require('../models/Property')
 const uploadQueue = require('../queues/uploadQueue')
 
-const queueMediaUpload = async (propertyId, imagePaths, videoPath) => {
-  await uploadQueue.add('uploadMediaJob', {
-    propertyId,
-    imagePaths,
-    videoPath,
-  })
-}
 
-const createProperty = (req, res) => {
-  const bb = busboy({ headers: req.headers });
-  const fields = {};
-  const files = [];
+const createProperty = async (req, res) => {
+  try {
 
-  // Collect fields
-  bb.on('field', (fieldname, val) => {
-    fields[fieldname] = val;
-  });
+    const {
+      title,
+      rating,
+      address,
+      rooms,
+      bathrooms,
+      area,
+      price,
+    } = req.body;
 
-  // Collect file streams and destination paths
-  bb.on('file', (fieldname, file, filename) => {
-    const tempFilePath = path.join(__dirname, '../temp', `${Date.now()}-${filename}`);
-    files.push({ fieldname, file, tempFilePath });
-  });
+    // Validate required fields if needed (optional step)
 
-  bb.on('finish', async () => {
-    try {
-      const { title, rating = 0, address, rooms, bathrooms, area, price } = fields;
+    const newProperty = await Property.create({
+      title,
+      rating,
+      address,
+      rooms,
+      bathrooms,
+      area,
+      price,
+      images: [],          // empty for now
+      video: null,         // empty for now
+      uploadStatus: 'pending',
+    });
 
-      const newProperty = await Property.create({
-        title,
-        rating,
-        address,
-        rooms,
-        bathrooms,
-        area,
-        price,
-        images: [],
-        video: null,
-        uploadStatus: 'pending',
-      });
 
-      // ✅ Send response immediately
-      res.status(201).json({
-        message: 'Property created. Media will be uploaded in the background.',
-        propertyId: newProperty._id,
-      });
 
-      // ✅ Handle file writes + upload after response
-      setImmediate(() => {
-        const writeFilePromises = files.map(({ fieldname, file, tempFilePath }) => {
-          return new Promise((resolve, reject) => {
-            const writeStream = fs.createWriteStream(tempFilePath);
-            file.pipe(writeStream);
+    res.status(201).json({
+      message: 'Property created successfully',
+      propertyId: newProperty._id,
+    });
 
-            writeStream.on('finish', () => {
-              resolve({ fieldname, path: tempFilePath });
-            });
-
-            writeStream.on('error', err => {
-              console.error(`❌ Error writing file ${tempFilePath}:`, err);
-              reject(err);
-            });
-          });
-        });
-
-        Promise.all(writeFilePromises)
-          .then(results => {
-            const imagePaths = [];
-            let videoPath = null;
-
-            results.forEach(({ fieldname, path }) => {
-              if (fieldname === 'video') {
-                videoPath = path;
-              } else {
-                imagePaths.push(path);
-              }
-            });
-
-            // ✅ Queue upload
-            queueMediaUpload(newProperty._id, imagePaths, videoPath)
-              .then(() => console.log(`📥 Media upload queued for ${newProperty._id}`))
-              .catch(err => {
-                console.error('❌ Upload queueing failed:', err);
-                Property.findByIdAndUpdate(newProperty._id, { uploadStatus: 'failed' });
-              });
-          })
-          .catch(err => {
-            console.error('❌ File writing failed (post-response):', err);
-            Property.findByIdAndUpdate(newProperty._id, { uploadStatus: 'failed' });
-          });
-      });
-    } catch (err) {
-      console.error('❌ Property creation failed:', err);
-      if (!res.headersSent) {
-        res.status(500).json({ message: 'Server error', error: err.message });
-      }
-    }
-  });
-
-  req.pipe(bb);
+  } catch (error) {
+    console.error('Property creation failed:', error);
+    res.status(500).json({
+      message: 'Failed to create property',
+      error: error.message,
+    });
+  }
 };
+
+
 
 
 
