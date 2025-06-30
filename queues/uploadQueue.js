@@ -5,6 +5,7 @@
   const path = require('path');
   const uploadFileToBlob = require('../utils/uploadToBlob');
   const Property = require('../models/Property');
+  const { broadcastToClients } = require('../ws/websocketServer');
 
   const connection = new IORedis(process.env.REDIS_URL, {
     maxRetriesPerRequest: null,
@@ -52,6 +53,11 @@
           images: imageUrls,
           video: videoUrl,
           uploadStatus: 'completed',
+        });
+
+        broadcastToClients({
+          event: 'media_uploaded',
+          propertyId, // dynamically passed from job
         });
 
         console.log(`✅ Media uploaded for property ${propertyId}`);
