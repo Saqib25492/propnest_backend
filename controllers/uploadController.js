@@ -20,17 +20,20 @@ const uploadMedia = async (req, res) => {
       videoPath = req.files.video[0].path;
     }
 
-    // Queue background media upload
-    await uploadQueue.add('media-job', {
-      propertyId,
-      imagePaths,
-      videoPath,
-    });
 
     // Respond immediately
     res.status(202).json({
       message: 'Media upload queued successfully',
     });
+
+    // Queue background media upload
+    await uploadQueue.add('uploadMedia', {
+      propertyId,
+      imagePaths,
+      videoPath,
+    });
+
+
 
   } catch (err) {
     console.error('UploadMedia controller error:', err);

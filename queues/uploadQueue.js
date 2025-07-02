@@ -15,6 +15,7 @@
 
   const uploadQueue = new Queue('uploadMedia', {
     connection,
+    concurrency: 2,
     defaultJobOptions: {
       attempts: 3,
       backoff: {
